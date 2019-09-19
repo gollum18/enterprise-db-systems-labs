@@ -1,3 +1,0 @@
-flask
-pymssql
-regex
