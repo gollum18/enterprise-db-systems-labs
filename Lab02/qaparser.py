@@ -23,6 +23,7 @@ def is_int(string):
         int(string)
     except ValueError:
         return False
+    return True
 
 
 def get_condition(cond_token, split_tokens):
@@ -62,14 +63,14 @@ class QAEngine(object):
 
 
     def selection(self, in_table, out_table, conditions):
-        """Implements SQL-like selection operation to filter tuples from a relation.
-        Tuples in in_table that do not meet all of the conditions specified are
+        """Implements SQL-like selection operation to filter rows from a relation.
+        rows in in_table that do not meet all of the conditions specified are
         filtered out and not preserved to out_table.
 
         Arguments:
-            in_table (list): A list of tuples from a relation.
-            out_table (list): A list of tuples from a relation.
-            conditions (list): A list of tuples of the following form:
+            in_table (list): A list of rows from a relation.
+            out_table (list): A list of rows from a relation.
+            conditions (list): A list of rows of the following form:
                     (key, op, value)
                 Where...
                     key is the column to filter on
@@ -79,33 +80,36 @@ class QAEngine(object):
         # empty the out table if it exists already
         if out_table in self._tables:
             self._tables[out_table].clear()
+        else:
+            self._tables[out_table] = []
         # read in the table from memory
-        for tuple in self.read_table(in_table):
-            # used to determine whether to keep the tuple or not
-            add_tuple = True
+        for row in self.read_table(in_table):
+            # used to determine whether to keep the row or not
+            add_row = True
             for condition in conditions:
                 key = condition[0]
                 op = condition[1]
                 value = condition[2]
-                if op == '=' and not tuple[key] == value:
-                    add_tuple = False
-                elif op == '!=' and not tuple[key] != value:
-                    add_tuple = False
-                elif op == '<' and not tuple[key] < value:
-                    add_tuple = False
-                elif op == '<=' and not tuple[key] <= value:
-                    add_tuple = False
-                elif op == '>' and not tuple[key] > value:
-                    add_tuple = False
-                elif op == '>=' and not tuple[key] >= value:
-                    add_tuple = False
-                if not add_tuple:
+                if op == '=' and not row[key] == value:
+                    add_row = False
                     break
-            # add the tuple to the out table
-            if add_tuple:
-                self._tables[out_table].append(dict(tuple))
+                elif op == '!=' and not row[key] != value:
+                    add_row = False
+                    break
+                elif op == '<' and not row[key] < value:
+                    add_row = False
+                    break
+                elif op == '>' and not row[key] > value:
+                    add_row = False
+                    break
+                elif op == '>=' and not row[key] >= value:
+                    add_row = False
+                    break
+            # add the row to the out table
+            if add_row:
+                self._tables[out_table].append(dict(row))
         # write out the out table
-        self.write_out(out_table)
+        self.write_table(out_table)
 
 
     def projection(self, in_table, out_table, project_list):
@@ -120,24 +124,26 @@ class QAEngine(object):
         # empty the out table if it exists already
         if out_table in self._tables:
             self._tables[out_table].clear()
+        else:
+            self._tables[out_table] = []
         # build the output table in memory
-        for tuple in self.read_table(in_table):
+        for row in self.read_table(in_table):
             self._tables[out_table].append(
-                {key:value for key, value in tuple if key in project_list}
+                {key:value for key, value in row.items() if key in project_list}
             )
         # write the output table to disk
         self.write_table(out_table)
 
 
     def join(self, left_table, right_table, out_table, conditions):
-        """Implements SQL-like join operation to join tuples from two relations based
+        """Implements SQL-like join operation to join rows from two relations based
         on specified conditions.
 
         Arguments:
             left_table (str): The left table to join on.
             right_table (str): The right table to join against.
             out_table (str): The table to write the join results to.
-            conditions (list): A list containing tuples of the following form:
+            conditions (list): A list containing rows of the following form:
                     (left_key, op, right_key)
                 Where...
                     left_key is the key from the left table
@@ -147,25 +153,27 @@ class QAEngine(object):
         # empty the out table if it exists already
         if out_table in self._tables:
             self._tables[out_table].clear()
+        else:
+            self._tables[out_table] = []
         # join the records from the two tables together based on conditions
         #   specified - p and q are dict object
-        for p in self._tables[left_table]:
-            for q in self._tables[right_table]:
+        for p in self.read_table(left_table):
+            for q in self.read_table(right_table):
                 # make sure that the conditions match
-                add_tuple = True
+                add_row = True
                 # make sure that all of the conditions check out before join
                 for condition in conditions:
                     left_key = condition[0]
                     op = condition[1]
                     right_key = condition[2]
                     if op == '=' and not p[left_key] == q[right_key]:
-                        add_tuple = False
+                        add_row = False
                         break
                 # join the relations together
-                if add_tuple:
+                if add_row:
                     self._tables[out_table].append(dict(p, **q))
         # write the contents of the table to disk
-        write_table(out_table)
+        self.write_table(out_table)
 
 
     def run(self, query_steps):
@@ -177,7 +185,7 @@ class QAEngine(object):
             SQL-like query.
 
         Returns:
-            (list): A list of tuples containing the table
+            (list): A list of rows containing the table
         """
         split_tokens = '|'.join(['=', '!=', '<', '<=', '>', '>='])
         for step in query_steps:
@@ -204,7 +212,7 @@ class QAEngine(object):
                 self.join(left_table, right_table, out_table, conditions)
             elif op =='projection':
                 in_table = parts[1]
-                project_list = parts[2:-1]
+                project_list = [part.replace(',', '') for part in parts[2:-1]]
                 self.projection(in_table, out_table, project_list)
             else:
                 click.echo('\'{}\' operation is unsupported!'.format(step))
@@ -217,14 +225,14 @@ class QAEngine(object):
         Arguments:
             table_name (str): The name of the table to write to disk.
         """
-        with open('{}_out.tsv', 'w', newline='') as tsvfile:
-            writer = csv.write(tsvfile, delimeter='\t', quotechar='|',
+        with open('{}_out.tsv'.format(table_name), 'w', newline='') as tsvfile:
+            writer = csv.writer(tsvfile, delimiter='\t', quotechar='|',
                 quoting=csv.QUOTE_MINIMAL)
             # write out the header row for the table
             writer.writerow(self._tables[table_name][0].keys())
             # write out the data rows for the table
             for row in self._tables[table_name]:
-                writerow(row.values())
+                writer.writerow(row.values())
 
 
     def read_table(self, table_name):
@@ -237,7 +245,7 @@ class QAEngine(object):
             table_name (str): The name of the table to read.
 
         Returns:
-            (generator): A Python generator that yields QATuples over the contents
+            (generator): A Python generator that yields QArows over the contents
             of a table pointed to by table_name.
         """
         # check if we need to read the table from SQL Server
@@ -254,11 +262,11 @@ class QAEngine(object):
                         SELECT * FROM {}
                         """.format(table_name)
                     )
-                    for tuple in cursor:
-                        yield tuple
+                    for row in cursor:
+                        yield {k.lower(): v for k, v in row.items()}
         else:
-            for tuple in self._tables[table_name]:
-                yield tuple
+            for row in self._tables[table_name]:
+                yield row
 
 
 @click.command()
@@ -275,6 +283,7 @@ def main(infile, host, port, database):
         with open(infile) as f:
             query_steps = list()
             for line in f:
+                line = line.replace('\n', '')
                 query_steps.append(line)
     except IOError:
         click.echo('IOError: Indicated qa file not found!')
