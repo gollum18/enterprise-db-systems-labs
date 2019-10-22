@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29411.108
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{D2ABAB84-BF74-430A-B69E-9DC6D40DDA17}") = "AdventureWorks2017Analysis", "AdventureWorks2017Analysis\AdventureWorks2017Analysis.dwproj", "{2554497E-44D3-4639-8CCD-F6F6A3EF05A0}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Development|Default = Development|Default
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2554497E-44D3-4639-8CCD-F6F6A3EF05A0}.Development|Default.ActiveCfg = Development
+		{2554497E-44D3-4639-8CCD-F6F6A3EF05A0}.Development|Default.Build.0 = Development
+		{2554497E-44D3-4639-8CCD-F6F6A3EF05A0}.Development|Default.Deploy.0 = Development
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {FDFEE334-2704-417D-B051-576C3A7E59EA}
+	EndGlobalSection
+EndGlobal
