@@ -9,6 +9,32 @@ import click
 from sortedcontainers import SortedList
 
 
+def split(parent, child):
+    """Splits a node according to B+ tree insertion algorithm rules.
+
+    Arguments:
+        parent (_BPTNode): The parent of the node being split.
+        child (_BPTNode): The node being split.
+    """
+    if child and parent and child.count() > child.n * child.ff:
+        # create the left and right leafs
+        left_leaf = _BPTNode(parent.n, parent.ff, False)
+        right_leaf = _BPTNode(parent.n, parent.ff, False)
+        left_leaf.next = right_leaf
+        right_leaf.prev = left_leaf
+        # stride the entries list so we dont process one entry at a time
+        for i in range(len(child.entries)//2):
+            left_entry = child.entries[i]
+            right_entry = child.entries[i*2]
+            left_leaf.add(_BPTEntry(left_entry.k, left_entry.v))
+            right_leaf.add(_BPTEntry(right_entry.k, right_entry.v))
+        # make this node an internal node
+        parent.internal = True
+        parent.entries.clear()
+        parent.entries.add(_BPTEntry(k=left_leaf.last().k, lp=left_leaf))
+        parent.entries.add(_BPTEntry(k=right_leaf.last().k, lp=right_leaf))
+
+
 class BPTree(object):
     """Implements a 'public' B+ tree class. This class is invoked by clients
     to utilize the underlying B+ tree algorithms to for example, build effective
@@ -30,9 +56,13 @@ class BPTree(object):
             (BPTree): An instance of a B+ tree with 'n' keys per node and
             'ff' fill factor.
         """
+        if n < 5:
+            n = 5
         self.n = n
+        if ff <= 0 or ff >= 1:
+            ff = 0.75
         self.ff = ff
-        self.root = _BPTNode(self.n, self.ff)
+        self.root = _BPTNode(n=n, ff=ff)
 
 
     def add(self, k, v):
@@ -44,7 +74,7 @@ class BPTree(object):
         """
         if not self.root:
             raise Exception()
-        self.root.add(k, v)
+        split(self.root, self.root.add(k, v))
 
 
     def contains(self, k):
@@ -83,6 +113,17 @@ class BPTree(object):
         if not self.root:
             raise Exception()
         return self.root.get(k)
+
+
+    def height(self):
+        """Returns the height of the B+ tree.
+
+        Returns:
+            (int): The height of the B+ tree.
+        """
+        if not self.root:
+            raise Exception()
+        return self.root.height()
 
 
     def remove(self, k):
@@ -142,10 +183,10 @@ class _BPTEntry(object):
         if not other:
             raise ValueError
 
-        if isinstance(other, BPTEntry):
+        if not isinstance(other, _BPTEntry):
             raise ValueError
 
-        return this.k == other.k
+        return self.k == other.k
 
 
     def __lt__(self, other):
@@ -157,10 +198,10 @@ class _BPTEntry(object):
         if not other:
             raise ValueError
 
-        if isinstance(other, BPTEntry):
+        if not isinstance(other, _BPTEntry):
             raise ValueError
 
-        return this.k < other.k
+        return self.k < other.k
 
 
     def __le__(self, other):
@@ -173,10 +214,10 @@ class _BPTEntry(object):
         if not other:
             raise ValueError
 
-        if isinstance(other, BPTEntry):
+        if not isinstance(other, _BPTEntry):
             raise ValueError
 
-        return this.k <= other.k
+        return self.k <= other.k
 
 
     def __gt__(self, other):
@@ -188,10 +229,10 @@ class _BPTEntry(object):
         if not other:
             raise ValueError
 
-        if isinstance(other, BPTEntry):
+        if not isinstance(other, _BPTEntry):
             raise ValueError
 
-        return this.k > other.k
+        return self.k > other.k
 
 
     def __ge__(self, other):
@@ -204,10 +245,10 @@ class _BPTEntry(object):
         if not other:
             raise ValueError
 
-        if isinstance(other, BPTEntry):
+        if not isinstance(other, _BPTEntry):
             raise ValueError
 
-        return this.k >= other.k
+        return self.k >= other.k
 
 
 class _BPTNode(object):
@@ -270,24 +311,8 @@ class _BPTNode(object):
             self.entries.add(_BPTEntry(k, v))
             return self
         # did the insertion cause an overflow? split the node if so
-        if (inserted_node and
-                inserted_node.count() > inserted_node.n * inserted_node.ff):
-            # create the left and right leafs
-            left_leaf = _BPTNode(self.n, self.ff, False)
-            right_leaf = _BPTNode(self.n, self.ff, False)
-            left_leaf.next = right_leaf
-            right_leaf.prev = left_leaf
-            # stride the entries list so we dont process one entry at a time
-            for i in range(len(inserted.entries)//2):
-                left_entry = inserted.entries[i]
-                right_entry = inserted.entries[i*2]
-                left_leaf.add(_BPTEntry(left_entry.k, left_entry.v))
-                right_leaf.add(_BPTEntry(right_entry.k, right_entry.v))
-            # make this node an internal node
-            self.internal = True
-            self.entries.clear()
-            self.entries.add(_BPTEntry(k=left_leaf.last().k, lp=left_leaf))
-            self.entries.add(_BPTEntry(k=right_leaf.last().k, lp=right_leaf))
+        print('Inserted node:', inserted_node)
+        split(self, inserted_node)
         return self
 
 
@@ -363,6 +388,17 @@ class _BPTNode(object):
             self.entries[0].lp.get(k)
 
 
+    def height(self):
+        """Returns the height of the B+ tree.
+
+        Returns:
+            (int): The height of the B+ tree.
+        """
+        if not self.internal:
+            return 1
+        return self.entries[0].lp.height() + 1
+
+
     def iterate(self):
         """Returns a Python generator over the key-value entries in the B+
         tree.
@@ -428,8 +464,11 @@ def test_bpt(max_keys=5, fill_factor=0.75):
     for i in range(len(items)):
         tree.add(items[i], i)
     print('Items in tree: {n}'.format(n=tree.size()))
+    print('Height of tree: {n}'.format(n=tree.height()))
+    print('Tree contents:')
     for entry in tree.iterate():
-        print('Key: {k}, Value: {v}'.format(k=entry[0], v=entry[1]))
+        print('==> Key: {k}, Value: {v}'.format(k=entry[0], v=entry[1]))
+
 
 if __name__ == '__main__':
     test_bpt()
