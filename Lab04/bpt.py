@@ -129,85 +129,85 @@ class _BPTEntry(object):
         self.lp = None
 
 
-# Implement comparing methods for sortedcontainers support.
-# Raise a ValueError on None or for classes that are not a BPTEntry.
-# This class can only be compared against an instance of itself, other
-#   classes are not supported.
-def __eq__(self, other):
-    """Determines whether this BPTEntry is equal to another BPTEntry.
+    # Implement comparing methods for sortedcontainers support.
+    # Raise a ValueError on None or for classes that are not a BPTEntry.
+    # This class can only be compared against an instance of itself, other
+    #   classes are not supported.
+    def __eq__(self, other):
+        """Determines whether this BPTEntry is equal to another BPTEntry.
 
-    Argument:
-        other (BPTEntry): An instance of a BPTEntry object.
-    """
-    if not other:
-        raise ValueError
+        Argument:
+            other (BPTEntry): An instance of a BPTEntry object.
+        """
+        if not other:
+            raise ValueError
 
-    if isinstance(other, BPTEntry):
-        raise ValueError
+        if isinstance(other, BPTEntry):
+            raise ValueError
 
-    return this.k == other.k
-
-
-def __lt__(self, other):
-    """Determines whether this BPTEntry is less than another BPTEntry.
-
-    Argument:
-        other (BPTEntry): An instance of a BPTEntry object.
-    """
-    if not other:
-        raise ValueError
-
-    if isinstance(other, BPTEntry):
-        raise ValueError
-
-    return this.k < other.k
+        return this.k == other.k
 
 
-def __le__(self, other):
-    """Determines whether this BPTEntry is less than or equal to another
-    BPTEntry.
+    def __lt__(self, other):
+        """Determines whether this BPTEntry is less than another BPTEntry.
 
-    Argument:
-        other (BPTEntry): An instance of a BPTEntry object.
-    """
-    if not other:
-        raise ValueError
+        Argument:
+            other (BPTEntry): An instance of a BPTEntry object.
+        """
+        if not other:
+            raise ValueError
 
-    if isinstance(other, BPTEntry):
-        raise ValueError
+        if isinstance(other, BPTEntry):
+            raise ValueError
 
-    return this.k <= other.k
-
-
-def __gt__(self, other):
-    """Determines whether this BPTEntry is greater than another BPTEntry.
-
-    Argument:
-        other (BPTEntry): An instance of a BPTEntry object.
-    """
-    if not other:
-        raise ValueError
-
-    if isinstance(other, BPTEntry):
-        raise ValueError
-
-    return this.k > other.k
+        return this.k < other.k
 
 
-def __ge__(self, other):
-    """Determines whether this BPTEntry is greater than or equal to another
-    BPTEntry.
+    def __le__(self, other):
+        """Determines whether this BPTEntry is less than or equal to another
+        BPTEntry.
 
-    Argument:
-        other (BPTEntry): An instance of a BPTEntry object.
-    """
-    if not other:
-        raise ValueError
+        Argument:
+            other (BPTEntry): An instance of a BPTEntry object.
+        """
+        if not other:
+            raise ValueError
 
-    if isinstance(other, BPTEntry):
-        raise ValueError
+        if isinstance(other, BPTEntry):
+            raise ValueError
 
-    return this.k >= other.k
+        return this.k <= other.k
+
+
+    def __gt__(self, other):
+        """Determines whether this BPTEntry is greater than another BPTEntry.
+
+        Argument:
+            other (BPTEntry): An instance of a BPTEntry object.
+        """
+        if not other:
+            raise ValueError
+
+        if isinstance(other, BPTEntry):
+            raise ValueError
+
+        return this.k > other.k
+
+
+    def __ge__(self, other):
+        """Determines whether this BPTEntry is greater than or equal to another
+        BPTEntry.
+
+        Argument:
+            other (BPTEntry): An instance of a BPTEntry object.
+        """
+        if not other:
+            raise ValueError
+
+        if isinstance(other, BPTEntry):
+            raise ValueError
+
+        return this.k >= other.k
 
 
 class _BPTNode(object):
