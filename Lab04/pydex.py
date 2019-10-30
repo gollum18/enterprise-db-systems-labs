@@ -61,7 +61,7 @@ def key_to_binary(key, n=32):
 
 class _DHTEntry(object):
     """
-    Implements an entry in a Dynamic Hash Table (DHT).
+    Implements an entry in a dynamic hash tree (DHT).
     """
 
     def __init__(self, key, value):
@@ -80,7 +80,7 @@ class _DHTNode(object):
     Implements a node in a dynamic hash tree. Used by the DHT class to perform internal operations on the tree.
     """
 
-    def __init__(self, parent, depth=0, n=8, direction=RIGHT_TO_LEFT):
+    def __init__(self, parent=None, depth=0, n=8, direction=RIGHT_TO_LEFT):
         """
         Returns an instance of a _DHTNode with the specified max bucket size and parent.
         :param n: The max bucket size.
@@ -91,6 +91,7 @@ class _DHTNode(object):
         self.depth = depth
         self.parent = parent
         self.direction = direction
+        self.internal = False
         self.left_child = SortedList(key=extract_key)
         self.right_child = SortedList(key=extract_key)
 
@@ -130,7 +131,7 @@ class _DHTNode(object):
         :param bitstring: A partially consumed bitstring representation of the key.
         :return: True if the key is found in the tree, False otherwise.
         """
-        tree_key, consumed_key = consume_key(key, bitstring)
+        tree_key, consumed_key = consume_key(bitstring, self.direction)
         if tree_key == LEFT_KEY:
             if isinstance(self.left_child, _DHTNode):
                 return self.left_child.contains(key, consumed_key)
@@ -189,10 +190,10 @@ class _DHTNode(object):
         :param bitstring: A partially consumed bitstring version of the key.
         :return: The value corresponding to the first instance of the key, else None.
         """
-        tree_key, consumed_key = consume_key(key, bitstring)
+        tree_key, consumed_key = consume_key(bitstring, self.direction)
         if tree_key == LEFT_KEY:
             if isinstance(self.left_child, _DHTNode):
-                return self.left_child.contains(key, consumed_key)
+                return self.left_child.get(key, consumed_key)
             elif isinstance(self.left_child, SortedList):
                 for entry in self.left_child:
                     if entry.key == key:
@@ -202,7 +203,7 @@ class _DHTNode(object):
                 raise KeyError
         elif tree_key == RIGHT_KEY:
             if isinstance(self.right_child, _DHTNode):
-                return self.right_child.contains(key, consumed_key)
+                return self.right_child.get(key, consumed_key)
             elif isinstance(self.right_child, SortedList):
                 for entry in self.right_child:
                     if entry.key == key:
@@ -243,21 +244,23 @@ class _DHTNode(object):
                 raise Exception()
             new_left = _DHTNode(self, n=self.n, depth=self.depth+1)
             for entry in self.left_child:
-                consumed_key = entry.key
+                consumed_key = key_to_binary(entry.key)
                 for i in range(self.depth):
                     _, consumed_key = consume_key(consumed_key, self.direction)
                 new_left.add(entry.key, consumed_key, entry.value)
-            self.left_child = new_left
+            if self.parent is not None:
+                self.parent.left_child = new_left
         elif tree_key == RIGHT_KEY:
             if not isinstance(self.right_child, SortedList):
                 raise Exception()
             new_right = _DHTNode(self, n=self.n, depth=self.depth+1)
             for entry in self.right_child:
-                consumed_key = entry.key
+                consumed_key = key_to_binary(entry.key)
                 for i in range(self.depth):
                     _, consumed_key = consume_key(consumed_key, self.direction)
                 new_right.add(entry.key, consumed_key, entry.value)
-            self.right_child = new_right
+            if self.parent is not None:
+                self.parent.right_child = new_right
         else:
             raise ValueError()
         self.internal = True
@@ -275,6 +278,7 @@ class _DHTNode(object):
             self.parent.right_child = SortedList(key=extract_key)
         else:
             raise Exception
+        self.internal = False
 
 
 class DHT(object):
@@ -287,30 +291,55 @@ class DHT(object):
         Returns a new instance of a DHT with a specified max number of entries per node.
         :param n: The max number of entries per node.
         """
-        self.root = _DHTNode(n)
+        self.root = _DHTNode(n=n)
 
     def add(self, key, value):
+        """
+        Adds a key-value pair to the DHT.
+        :param key: The key ordinate of the key-value pair.
+        :param value: The value ordinate of the key-value pair.
+        """
         self.root.add(key, key_to_binary(key), value)
 
     def contains(self, key):
+        """
+        Determines if the DHT contains a key-value pair given its key.
+        :param key: The key ordinate of the key-value pair.
+        :return: True if the DHT contains a key-value pair with the given key.
+        """
         return self.root.contains(key, key_to_binary(key))
 
     def delete(self, key):
+        """
+        Deletes the first instance of a matching key-value pair with the given key.
+        :param key: The key ordinate of the key-value pair.
+        """
         self.root.delete(key, key_to_binary(key))
 
     def get(self, key):
+        """
+        Retrieves a the value from a key-value pair in the DHT.
+        :param key: The key ordinate of the key-value pair to lookup.
+        :return: The value if the key-value pair is found, otherwise None.
+        """
         return self.root.get(key, key_to_binary(key))
 
     def height(self):
+        """
+        Gets the height of the DHT.
+        :return: The height of the DHT.
+        """
         return self.root.height()
 
 
 def test_dynamic_hashing():
     items = [5, 1, 9, 3, 8, 2, 6, 0, 7]
-    tree = DHT()
+    tree = DHT(n=3)
     for i in range(len(items)):
         tree.add(items[i], i)
-    print('Height:', tree.height())
+    assert tree.contains(9)
+    assert tree.height() == 2
+    assert tree.get(9) == 2
 
 
 if __name__ == '__main__':
