@@ -19,6 +19,14 @@ import csv, sys, os
 
 
 def is_int(string):
+    """Determines if a string is an integer.
+
+    Arguments:
+        string (str): The string to check.
+
+    Returns:
+        (boolean): True if the string is an integer, False otherwise.
+    """
     try:
         int(string)
     except ValueError:
@@ -33,6 +41,12 @@ def get_condition(cond_token, split_tokens):
         cond_token (str): A condition token of the form:
             key|op|value (ignoring |)
         split_tokens (list): A list of strings tokens to split on.
+
+    Returns:
+        (set): A tuple containing the following format:
+            key: The field pertaining to the condition.
+            op: The conditions operator.
+            value: The value to compare against the field.
     """
     import re
     pattern = r"({kwds})".format(kwds=split_tokens)
@@ -40,14 +54,20 @@ def get_condition(cond_token, split_tokens):
     key = cond_parts[0]
     op = cond_parts[1]
     value = int(cond_parts[2]) if is_int(cond_parts[2]) else cond_parts[2]
-    return [key, op, value]
+    return (key, op, value)
 
 
 class QAEngine(object):
-    """Defines an engine for parsing QA queries.
+    """Defines an engine for parsing QA queries. CUrrently the QAEngine supports
+    selection, projection, and join operations via the following tokens:
+        Selection: Selection
+        Projection: Projection
+        Join: Join
+    By default the QAEngine is case-insensitive. You can disable this feature either
+    during object creation or after an instance of the QAEngine has been instantiated.
     """
 
-    def __init__(self, host='127.0.0.1', port=1433, database='COMPANY'):
+    def __init__(self, host='127.0.0.1', port=1433, database='COMPANY', case_sensitive=False):
         """Returns a new instance of a QAEngine instance configured to point
         at the specified database.
 
@@ -55,10 +75,13 @@ class QAEngine(object):
             host (str): The IPV4 address of the backing SQL Server.
             port (int): The port number of the backing SQL Server.
             database (str): The database to perform the queries against.
+            case_sensitive (boolean): Whether QA queries are treated as case-sensitive
+            or not.
         """
         self._host = host
         self._port = port
         self._database = database
+        self._case_sensitve = case_sensitive
         self._tables = dict()
 
 
@@ -76,6 +99,9 @@ class QAEngine(object):
                     key is the column to filter on
                     op is one of {=, !=, <, <=, >, >=}
                     value is the value to filter against
+
+        Returns:
+            (generator): A generator over the result set.
         """
         # empty the out table if it exists already
         if out_table in self._tables:
@@ -120,6 +146,9 @@ class QAEngine(object):
             out_table (str): The name of the table to write the projection
             results to.
             project_list (list): The list of fields to project.
+
+        Returns:
+            (generator): A generator over the result set.
         """
         # empty the out table if it exists already
         if out_table in self._tables:
@@ -149,6 +178,9 @@ class QAEngine(object):
                     left_key is the key from the left table
                     op is one of: {=}
                     right_key is the key from right table
+
+        Returns:
+            (generator): A generator over the result set.
         """
         # empty the out table if it exists already
         if out_table in self._tables:
@@ -217,6 +249,8 @@ class QAEngine(object):
             else:
                 click.echo('\'{}\' operation is unsupported!'.format(step))
                 break
+        # empty out the tables from memory
+        self._tables.clear()
 
 
     def write_table(self, table_name):
@@ -225,14 +259,24 @@ class QAEngine(object):
         Arguments:
             table_name (str): The name of the table to write to disk.
         """
-        with open('{}_out.tsv'.format(table_name), 'w', newline='') as tsvfile:
-            writer = csv.writer(tsvfile, delimiter='\t', quotechar='|',
-                quoting=csv.QUOTE_MINIMAL)
-            # write out the header row for the table
-            writer.writerow(self._tables[table_name][0].keys())
-            # write out the data rows for the table
-            for row in self._tables[table_name]:
-                writer.writerow(row.values())
+        filename = '{}.tsv'.format(table_name)
+        try:
+            with open(filename, 'w', newline='') as tsvfile:
+                writer = csv.writer(tsvfile, delimiter='\t', quotechar='|',
+                    quoting=csv.QUOTE_MINIMAL)
+                # write out the header row for the table
+                writer.writerow(self._tables[table_name][0].keys())
+                # write out the data rows for the table
+                for row in self._tables[table_name]:
+                    writer.writerow(row.values())
+        except Exception:
+            click.secho('ERROR: There was a problem writing tsv file: {}'.format(filename), fg='red')
+            # delete the tsv file if there was an issue creating it
+            if os.path.exists(filename):
+                os.remove(filename)
+        except Exception:
+            click.secho('ERROR: A general error has occurred. Now aborting...', fg='red')
+            sys.exit(-1)
 
 
     def read_table(self, table_name):
@@ -250,20 +294,24 @@ class QAEngine(object):
         """
         # check if we need to read the table from SQL Server
         if table_name not in self._tables:
-            # connect to the server
-            with pymssql.connect(host=self._host,
-                                 port=self._port,
-                                 database=self._database) as conn:
-                # create a cursor to get stuff from the server
-                with conn.cursor(as_dict=True) as cursor:
-                    # get the records from the server
-                    cursor.execute(
-                        """
-                        SELECT * FROM {}
-                        """.format(table_name)
-                    )
-                    for row in cursor:
-                        yield {k.lower(): v for k, v in row.items()}
+            try:
+                # connect to the server
+                with pymssql.connect(host=self._host,
+                                     port=self._port,
+                                     database=self._database) as conn:
+                    # create a cursor to get stuff from the server
+                    with conn.cursor(as_dict=True) as cursor:
+                        # get the records from the server
+                        cursor.execute(
+                            """
+                            SELECT * FROM {}
+                            """.format(table_name)
+                        )
+                        for row in cursor:
+                            yield {k.lower(): v for k, v in row.items()}
+            except Exception:
+                click.secho('ERROR: Could not connect to the SQL Server instance. Now aborting...', fg='red')
+                sys.exit(-1)
         else:
             for row in self._tables[table_name]:
                 yield row
@@ -277,6 +325,12 @@ class QAEngine(object):
 def main(infile, host, port, database):
     """Runs the QAEngine on the specified QA file to produce intermediate tables
     from a SQL Server source. Output files are written out as {TableName}_out.tsv.
+
+    Arguments:
+        infile (str): The filepath to the QA file (default: 'input.qa').
+        host (str): The host address of the SQL Server instance (default: '127.0.0.1').
+        port (int): The port number of the SQL Server instance (default: 1433).
+        database (str): The database to run the QA query against (default: COMPANY).
     """
     # get the query steps from file
     try:
