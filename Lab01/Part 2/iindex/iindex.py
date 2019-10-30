@@ -121,7 +121,7 @@ def create_index(database, table, host='127.0.0.1', port='1434'):
                 )
                 INSERT INTO Sorted_Table
                     SELECT * FROM TermList_Table
-                    ORDER BY Doc_Year, Term
+                    ORDER BY Doc_Year ASC, Term ASC
                 """
                 )
                 print('\nCreating term lookup table...')
@@ -147,12 +147,11 @@ def create_index(database, table, host='127.0.0.1', port='1434'):
                     SELECT Term, Doc_Year, SUM(Term_Freq)
                     FROM Sorted_Table
                     GROUP BY Doc_Year, Term
-                    ORDER BY Doc_Year, Term
+                    ORDER BY Doc_Year ASC, Term ASC
                 """
                 )
                 # calls the above procedure to create the termlookuptable
                 read_cursor.callproc('SP_CreateTermLookupTable')
-
 
     except Exception as e:
         print('\nThe following error occurred processing the inverted index:')

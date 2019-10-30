@@ -55,7 +55,7 @@ def projects():
         #   ex: row['fname'] will yield the contents of the 'fname' column
         # get the mployee records
         with db.cursor(as_dict=True) as cursor:
-            cursor.execute("SELECT * FROM EMPLOYEES")
+            cursor.execute("SELECT * FROM EMPLOYEE")
             context['employees'] = [row for row in cursor.fetchall()]
 
         # get the project records
