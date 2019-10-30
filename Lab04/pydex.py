@@ -1,4 +1,4 @@
-# Name: dynhash.py
+# Name: pydex.py
 # Since: 10/28/2019
 # Author: Christen Ford
 # Purpose: Implements the dynamic hashing index algorithm.
@@ -12,6 +12,12 @@ RIGHT_TO_LEFT = 1  # consumes from the right to the left
 # provided for convenience when traversing the tree.
 LEFT_KEY = '0'  # maps all entries keyed to '0'
 RIGHT_KEY = '1'  # maps all entries keyed to '1'
+
+# default values for the parameters of the B+ tree
+MIN_INDEX_BLOCKING_FACTOR = 4
+DEFAULT_INDEX_BLOCKING_FACTOR = 8
+MIN_FILL_FACTOR = 0.5
+DEFAULT_FILL_FACTOR = 0.75
 
 
 # used by the SortedList to compare keys
@@ -59,20 +65,165 @@ def key_to_binary(key, n=32):
     return format(key, '0{bits}b'.format(bits=n))
 
 
-class _DHTEntry(object):
+class _IndexEntry(object):
     """
-    Implements an entry in a dynamic hash tree (DHT).
+    Implements a generic index entry for use in the indexing classes. The hash indexing classes directly use this
+    class as is. If this class is being used by an internal node of the B+ class, then this class will additionally
+    contain an extra field: 'lst' (el-s-t).
+    'lst' is a pointer to the left sub-tree of the left sub-tree whereby each entry in the sub-tree contains keys that
+    are strictly <= the key stored in an instance of this class.
     """
 
     def __init__(self, key, value):
         """
-        Returns a new instance of a _DHTEntry.
-        :param key: The key stored in the DHT entry.
-        :param value: The value stored in the DHT entry.
-        :return: An instance of a _DHTEntry object.
+        Returns a new instance of a _IndexEntry.
+        :param key: The key stored in the index entry.
+        :param value: The value stored in the index entry.
+        :return: An instance of a _IndexEntry object.
         """
         self.key = key
         self.value = value
+
+
+class _BPTNode(object):
+    """
+    Implements a node in a B+ tree. Used by the BPT class to perform internal operations on the tree.
+    """
+
+    def __init__(self, n=8, ff=0.75, parent=None, internal=False):
+        """
+        Returns a new instance of a _BPTNode. A B+ tree node maintains variables for both the index blocking factor
+        and the index fill factor. Additionally, the B+ tree maintains an additional pointer to its parent at the cost
+        of minute memory overhead. Realistically, this has little to no impact on the memory consumption of the
+        tree, but provides substantial benefits towards implementation complexity.
+        :param n: The index blocking factor of the node, i.e. how many keys can be stored in the node (default: 8).
+        :param ff: The fill factor for of this node, i.e. out of the total number of keys, what percentage of keys in
+        the node should trigger an overflow. 1 - 'ff' percentage keys triggers an underflow. 50% is not recommended for
+        the fill factor as the tree will exhibit increased overflow/underflow behavior. Minimum value is 0.50
+        (default: 0.75), choose a value that is appropriate for your application.
+        :param parent: A pointer to the parent node (default: None).
+        :returns: An instance of a _BPTNode object.
+        """
+        self.n = n
+        self.ff = ff
+        self.parent = parent
+        self.internal = internal
+        self.entries = SortedList(key=extract_key)
+
+    def add(self, key, value):
+        """
+        Adds a key-value pair to the B+ tree. This functionality may trigger an overflow.
+        :param key: The key ordinate of the key-value pair.
+        :param value: The valur ordinate of the key-value pair.
+        """
+        raise NotImplementedError
+
+    def contains(self, key):
+        """
+        Determines if the B+ tree contains a key-value pair with the given key ordinate.
+        :param key: A key ordinate.
+        :return: True if a key-value pair was found with the given key ordinate, False otherwise.
+        """
+        raise NotImplementedError
+
+    def delete(self, key):
+        """
+        Removes a key-value pair from the tree if the key ordinate can be found in a leaf node. This functionality may
+        trigger an underflow, which (unique to the B/B+ tree) may additionally trigger overflows in upper nodes.
+        :param key: The key ordinate of the key-value pair to delete.
+        """
+        raise NotImplementedError
+
+    def get(self, key):
+        """
+        Retrieves a value ordinate from the tree.
+        :param key: The key ordinate of the key-value pair.
+        :return: A value ordinate if its key is found, None otherwise.
+        """
+        raise NotImplementedError
+
+    def _overflow(self):
+        """
+        Triggered whe the node overflows, i.e. its percentage of keys is > ff. Overflow behavior is based on the fill
+        status of the parent node of the node. If the parent node is not full, the middle key of this node is placed
+        into the parent node as an index while this nodes values are properly redistributed to the appropriate sub-nodes.
+        If the parent node is full, then another index node is created first and the tree is properly realigned as fit.
+        """
+        raise NotImplementedError
+
+    def _underflow(self):
+        """
+        Triggered when the node underflows, i.e. its percentage of keys is < 1 - ff. When an underflow occurs, the
+        B+ has its keys (key-value pairs if applicable) redistributed to the appropriate neighbors while the node itself
+        is pruned from the tree.
+        """
+        raise NotImplementedError
+
+
+class BPT(object):
+    """
+    Implements a B+ tree. A B+ tree maintains an ordered set of key-value pairs distributed across a n-ary complete and
+    balanced tree. B+ tree insertion and deletion allow the tree to automatically grow and contract based on parameters
+    given to the tree at instantiation. Internal nodes serve to guide search through the tree via key markers while
+    leaf nodes hold the key-value pairs. B+ trees always maintain their key-value pairs in sorted order akin to any
+    ordinary search tree. Each leaf node is connected to its siblings similar to a doubly linked list. This eases
+    traversal through the tree and in combination with ordering, provides substantial time complexity benefits to most
+    of the algorithms involved in maintaining/accessing the tree.
+
+    The most common use for B+ trees are in indexing operations, especially in database/file management as their origin
+    lies in reducing block I/O needed to find a record on file to a logarithmic complexity
+    """
+
+    def __init__(self, n=8, ff=0.75):
+        """
+        Returns a new instance of a BPT. A B+ tree maintains a root node. Nodes descendant form the root node inherit
+        the attributes of the B+ tree such as the trees index blocking factor and fill factor.
+        :param n: The index blocking factor of the node, i.e. how many keys can be stored in the node (default: 8).
+        :param ff: The fill factor for of this node, i.e. out of the total number of keys, what percentage of keys in
+        the node should trigger an overflow. 1 - 'ff' percentage keys triggers an underflow. 50% is not recommended for
+        the fill factor as the tree will exhibit increased overflow/underflow behavior. Minimum value is 0.50
+        (default: 0.75), choose a value that is appropriate for your application.
+        :returns: An instance of a BPT object.
+        """
+        if n < MIN_INDEX_BLOCKING_FACTOR:
+            n = DEFAULT_INDEX_BLOCKING_FACTOR
+        if ff < MIN_FILL_FACTOR:
+            ff = DEFAULT_FILL_FACTOR
+        self.n = n
+        self.ff = ff
+        self.root = _BPTNode(n, ff)
+
+    def add(self, key, value):
+        """
+        Adds a key-value pair to the B+ tree. May trigger an overflow to occur that could potentially propagate
+        up the tree.
+        :param key: The key ordinate of the key-value pair.
+        :param value: The value ordinate of the key-value pair.
+        """
+        self.root.add(key, value)
+
+    def contains(self, key):
+        """
+        Determines if the B+ tree contains a key-value pair with the given key. Could cause an overflow to occur
+        that could in turn cause overflows to occur.
+        :param key: The key ordinate of the key-value pair.
+        """
+        return self.root.contains(key)
+
+    def delete(self, key):
+        """
+        Removes a key-value pair from the tree.
+        :param key: The key ordinate of the key-value pair.
+        """
+        self.root.delete(key)
+
+    def get(self, key):
+        """
+        Retrieves the value ordinate of the key-value pair.
+        :param key: The key ordinate of the key-value pair.
+        :return: The value ordinate of the key-value pair if its key ordinate is found, None otherwise.
+        """
+        return self.root.get(key)
 
 
 class _DHTNode(object):
@@ -107,7 +258,7 @@ class _DHTNode(object):
             if isinstance(self.left_child, _DHTNode):
                 self.left_child.add(key, consumed_key, value)
             elif isinstance(self.left_child, SortedList):
-                self.left_child.add(_DHTEntry(key, value))
+                self.left_child.add(_IndexEntry(key, value))
                 if len(self.left_child) > self.n:
                     self._overflow(LEFT_KEY)
             else:
@@ -116,7 +267,7 @@ class _DHTNode(object):
             if isinstance(self.right_child, _DHTNode):
                 self.right_child.add(key, consumed_key, value)
             elif isinstance(self.right_child, SortedList):
-                self.right_child.add(_DHTEntry(key, value))
+                self.right_child.add(_IndexEntry(key, value))
                 if len(self.right_child) > self.n:
                     self._overflow(RIGHT_KEY)
             else:
