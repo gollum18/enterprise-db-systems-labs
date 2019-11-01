@@ -13,39 +13,33 @@ RIGHT_TO_LEFT = 1  # consumes from the right to the left
 LEFT_KEY = '0'  # maps all entries keyed to '0'
 RIGHT_KEY = '1'  # maps all entries keyed to '1'
 
-# default values for the parameters of the B+ tree
-MIN_INDEX_BLOCKING_FACTOR = 4
-DEFAULT_INDEX_BLOCKING_FACTOR = 8
-MIN_FILL_FACTOR = 0.5
-DEFAULT_FILL_FACTOR = 0.75
-
 
 # used by the SortedList to compare keys
 def extract_key(e):
     return e.key
 
 
-def consume_key(key, direction):
+def consume_bitstring(bitstring, direction):
     """
-    Consumes one bit from a binary key returning both the consumed bit and the remaining key.
-    :param key: The binary key to consume.
+    Consumes one bit from a binary string returning both the consumed bit and the partially consumed bitstring.
+    :param bitstring: A bitstring to consume.
     :param direction: The direction to consume from. One of {LEFT_TO_RIGHT, RIGHT_TO_LEFT}.
-    :return: A pair consisting of (bit, key-1).
-    :raises ValueError: If the key is not None or is not a string.
+    :return: A pair consisting of (bit, bitstring-1).
+    :raises ValueError: If the bitstring is None or is not a string.
     :raises ValueError: It the direction is not one of {LEFT_TO_RIGHT, RIGHT_TO_LEFT}.
     """
-    if key is None or not isinstance(key, str):
+    if bitstring is None or not isinstance(bitstring, str):
         raise ValueError
     if not (direction == LEFT_TO_RIGHT or direction == RIGHT_TO_LEFT):
         raise ValueError
-    if len(key) == 1:
-        return key[0], ""
+    if len(bitstring) == 1:
+        return bitstring[0], ""
     if direction == LEFT_TO_RIGHT:
-        bit = key[0]
-        consumed = key[1:len(key)]
+        bit = bitstring[0]
+        consumed = bitstring[1:len(bitstring)]
     else:
-        bit = key[-1]
-        consumed = key[0:len(key)-1]
+        bit = bitstring[-1]
+        consumed = bitstring[0:len(bitstring)-1]
     return bit, consumed
 
 
@@ -67,11 +61,7 @@ def key_to_binary(key, n=32):
 
 class _IndexEntry(object):
     """
-    Implements a generic index entry for use in the indexing classes. The hash indexing classes directly use this
-    class as is. If this class is being used by an internal node of the B+ class, then this class will additionally
-    contain an extra field: 'lst' (el-s-t).
-    'lst' is a pointer to the left sub-tree of the left sub-tree whereby each entry in the sub-tree contains keys that
-    are strictly <= the key stored in an instance of this class.
+    Implements a generic index entry for use in the indexing classes.
     """
 
     def __init__(self, key, value):
@@ -84,146 +74,230 @@ class _IndexEntry(object):
         self.key = key
         self.value = value
 
+    def __lt__(self, other):
+        """
+        Implements rich comparison for less-than on two index entries as well as an index entry and a key.
+        :param other: An _IndexEntry or key type.
+        :return:  self.key < other.key OR self.key < other
+        """
+        if other is None:
+            raise ValueError
+        if isinstance(other, _IndexEntry):
+            return self.key < other.key
+        elif isinstance(other, type(self.key)):
+            return self.key < other
+        else:
+            raise ValueError
+
+    def __le__(self, other):
+        """
+        Implements rich comparison for less-than-or-equal-to on two index entries as well as an index entry and a key.
+        :param other: An _IndexEntry or key type.
+        :return: self.key <= other.key OR self.key <= other
+        """
+        if other is None:
+            raise ValueError
+        if isinstance(other, _IndexEntry):
+            return self.key <= other.key
+        elif isinstance(other, type(self.key)):
+            return self.key <= other
+        else:
+            raise ValueError
+
+    def __gt__(self, other):
+        """
+        Implements rich comparison for greater-than on two index entries as well as an index entry and a key.
+        :param other: An _IndexEntry or key type.
+        :return: self.key > other.key OR self.key > other
+        """
+        if other is None:
+            raise ValueError
+        if isinstance(other, _IndexEntry):
+            return self.key > other.key
+        elif isinstance(other, type(self.key)):
+            return self.key > other
+        else:
+            raise ValueError
+
+    def __ge__(self, other):
+        """
+        Implements rich comparison for greater-than-or-equal-to on two index entries as well as an index entry and a
+        key.
+        :param other: An _IndexEntry or key type.
+        :return: self.key >= other.key OR self.key >= other
+        """
+        if other is None:
+            raise ValueError
+        if isinstance(other, _IndexEntry):
+            return self.key >= other.key
+        elif isinstance(other, type(self.key)):
+            return self.key >= other
+        else:
+            raise ValueError
+
+    def __eq__(self, other):
+        """
+        Implements rich comparison for equal-to on two index entries as well as an index entry and a key.
+        :param other: An _IndexEntry or key type.
+        :return: self.key == other.key OR self.key == other
+        """
+        if other is None:
+            raise ValueError
+        if isinstance(other, _IndexEntry):
+            return self.key == other.key
+        elif isinstance(other, type(self.key)):
+            return self.key == other
+        else:
+            raise ValueError
+
+    def __ne__(self, other):
+        """
+        Implements rich comparison for not-equal-to on two index entries as well as an index entry and a key.
+        :param other: An _IndexEntry or key type.
+        :return: self.key != other.key OR self.key != other.
+        """
+        if other is None:
+            raise ValueError
+        if isinstance(other, _IndexEntry):
+            return self.key != other.key
+        elif isinstance(other, type(self.key)):
+            return self.key != other
+        else:
+            raise ValueError
+
+    def __hash__(self):
+        """
+
+        :return:
+        """
+        return hash(self.key)
+
+    def __str__(self):
+        """
+
+        :return:
+        """
+        return "({k}, {v})".format(k=self.key, v=self.value)
+
 
 class _BPTNode(object):
     """
-    Implements a node in a B+ tree. Used by the BPT class to perform internal operations on the tree.
+    Implements an internal class that handles the heavy lifting for the B+ tree class.
     """
 
-    def __init__(self, n=8, ff=0.75, parent=None, internal=False):
+    def __init__(self, n=8, ff=0.75, internal=False, parent=None, sibling=None):
         """
-        Returns a new instance of a _BPTNode. A B+ tree node maintains variables for both the index blocking factor
-        and the index fill factor. Additionally, the B+ tree maintains an additional pointer to its parent at the cost
-        of minute memory overhead. Realistically, this has little to no impact on the memory consumption of the
-        tree, but provides substantial benefits towards implementation complexity.
-        :param n: The index blocking factor of the node, i.e. how many keys can be stored in the node (default: 8).
-        :param ff: The fill factor for of this node, i.e. out of the total number of keys, what percentage of keys in
-        the node should trigger an overflow. 1 - 'ff' percentage keys triggers an underflow. 50% is not recommended for
-        the fill factor as the tree will exhibit increased overflow/underflow behavior. Minimum value is 0.50
-        (default: 0.75), choose a value that is appropriate for your application.
-        :param parent: A pointer to the parent node (default: None).
-        :returns: An instance of a _BPTNode object.
+        Returns a new instace of a _BPTNode.
+        :param n: The maximum number of keys to store in the node.
+        :param ff: The fill factor for the node.
+        :param internal: Whether this node is an internal node. True=internal, False=leaf.
+        :param parent: The parent node of this node.
+        :param sibling: The next sibling from this node.
         """
         self.n = n
         self.ff = ff
-        self.parent = parent
         self.internal = internal
+        self.parent = parent
+        self.sibling = sibling
         self.entries = SortedList(key=extract_key)
+        self.pointers = []
 
     def add(self, key, value):
         """
-        Adds a key-value pair to the B+ tree. This functionality may trigger an overflow.
-        :param key: The key ordinate of the key-value pair.
-        :param value: The valur ordinate of the key-value pair.
+
+        :param key:
+        :param value:
+        :return:
         """
-        raise NotImplementedError
+        if self.internal:
+            index = self.entries.bisect_right(key)
+            self.pointers[index].add(key, value)
+        else:
+            self.entries.add(_IndexEntry(key, value))
+        if len(self.entries) > self.n * self.ff:
+            self._overflow()
 
     def contains(self, key):
         """
-        Determines if the B+ tree contains a key-value pair with the given key ordinate.
-        :param key: A key ordinate.
-        :return: True if a key-value pair was found with the given key ordinate, False otherwise.
+
+        :param key:
+        :return:
         """
-        raise NotImplementedError
+        if self.internal:
+            return self.pointers[0].contains(key)
+        else:
+            index = self.entries.bisect_right(key)
+            if index < len(self.entries):
+                return True
+            if self.sibling:
+                return self.sibling.contains(key)
+            return False
 
     def delete(self, key):
         """
-        Removes a key-value pair from the tree if the key ordinate can be found in a leaf node. This functionality may
-        trigger an underflow, which (unique to the B/B+ tree) may additionally trigger overflows in upper nodes.
-        :param key: The key ordinate of the key-value pair to delete.
+
+        :param key:
+        :return:
         """
-        raise NotImplementedError
+        if self.internal:
+            index = self.entries.bisect_right(key)
+            self.pointers[index].delete(key)
+        else:
+            self.entries.discard(key)
+        if len(self.entries) < 1 - (self.n * self.ff):
+            self._underflow()
 
     def get(self, key):
         """
-        Retrieves a value ordinate from the tree.
-        :param key: The key ordinate of the key-value pair.
-        :return: A value ordinate if its key is found, None otherwise.
+
+        :param key:
+        :return:
         """
-        raise NotImplementedError
+        if self.internal:
+            return self.pointers[0].get(key)
+        else:
+            index = self.entries.bisect_right(key)
+            if index < len(self.entries):
+                return self.entries[index].value
+            if self.sibling:
+                return self.sibling.get(key)
+            return None
+
+    def height(self):
+        """
+
+        :return:
+        """
+        if self.internal:
+            return self.pointers[0].height() + 1
+        return 1
+
+    def traverse(self):
+        """
+
+        :return:
+        """
+        if self.internal:
+            yield from self.pointers[0].traverse()
+        else:
+            for entry in self.entries:
+                yield entry.key, entry.value
+            if self.sibling:
+                yield from self.sibling.traverse()
 
     def _overflow(self):
         """
-        Triggered whe the node overflows, i.e. its percentage of keys is > ff. Overflow behavior is based on the fill
-        status of the parent node of the node. If the parent node is not full, the middle key of this node is placed
-        into the parent node as an index while this nodes values are properly redistributed to the appropriate sub-nodes.
-        If the parent node is full, then another index node is created first and the tree is properly realigned as fit.
+
+        :return:
         """
         raise NotImplementedError
 
     def _underflow(self):
         """
-        Triggered when the node underflows, i.e. its percentage of keys is < 1 - ff. When an underflow occurs, the
-        B+ has its keys (key-value pairs if applicable) redistributed to the appropriate neighbors while the node itself
-        is pruned from the tree.
+
+        :return:
         """
         raise NotImplementedError
-
-
-class BPT(object):
-    """
-    Implements a B+ tree. A B+ tree maintains an ordered set of key-value pairs distributed across a n-ary complete and
-    balanced tree. B+ tree insertion and deletion allow the tree to automatically grow and contract based on parameters
-    given to the tree at instantiation. Internal nodes serve to guide search through the tree via key markers while
-    leaf nodes hold the key-value pairs. B+ trees always maintain their key-value pairs in sorted order akin to any
-    ordinary search tree. Each leaf node is connected to its siblings similar to a doubly linked list. This eases
-    traversal through the tree and in combination with ordering, provides substantial time complexity benefits to most
-    of the algorithms involved in maintaining/accessing the tree.
-
-    The most common use for B+ trees are in indexing operations, especially in database/file management as their origin
-    lies in reducing block I/O needed to find a record on file to a logarithmic complexity
-    """
-
-    def __init__(self, n=8, ff=0.75):
-        """
-        Returns a new instance of a BPT. A B+ tree maintains a root node. Nodes descendant form the root node inherit
-        the attributes of the B+ tree such as the trees index blocking factor and fill factor.
-        :param n: The index blocking factor of the node, i.e. how many keys can be stored in the node (default: 8).
-        :param ff: The fill factor for of this node, i.e. out of the total number of keys, what percentage of keys in
-        the node should trigger an overflow. 1 - 'ff' percentage keys triggers an underflow. 50% is not recommended for
-        the fill factor as the tree will exhibit increased overflow/underflow behavior. Minimum value is 0.50
-        (default: 0.75), choose a value that is appropriate for your application.
-        :returns: An instance of a BPT object.
-        """
-        if n < MIN_INDEX_BLOCKING_FACTOR:
-            n = DEFAULT_INDEX_BLOCKING_FACTOR
-        if ff < MIN_FILL_FACTOR:
-            ff = DEFAULT_FILL_FACTOR
-        self.n = n
-        self.ff = ff
-        self.root = _BPTNode(n, ff)
-
-    def add(self, key, value):
-        """
-        Adds a key-value pair to the B+ tree. May trigger an overflow to occur that could potentially propagate
-        up the tree.
-        :param key: The key ordinate of the key-value pair.
-        :param value: The value ordinate of the key-value pair.
-        """
-        self.root.add(key, value)
-
-    def contains(self, key):
-        """
-        Determines if the B+ tree contains a key-value pair with the given key. Could cause an overflow to occur
-        that could in turn cause overflows to occur.
-        :param key: The key ordinate of the key-value pair.
-        """
-        return self.root.contains(key)
-
-    def delete(self, key):
-        """
-        Removes a key-value pair from the tree.
-        :param key: The key ordinate of the key-value pair.
-        """
-        self.root.delete(key)
-
-    def get(self, key):
-        """
-        Retrieves the value ordinate of the key-value pair.
-        :param key: The key ordinate of the key-value pair.
-        :return: The value ordinate of the key-value pair if its key ordinate is found, None otherwise.
-        """
-        return self.root.get(key)
 
 
 class _DHTNode(object):
@@ -234,8 +308,9 @@ class _DHTNode(object):
     def __init__(self, parent=None, depth=0, n=8, direction=RIGHT_TO_LEFT):
         """
         Returns an instance of a _DHTNode with the specified max bucket size and parent.
-        :param n: The max bucket size.
         :param parent: A pointer to the parent node.
+        :param depth: The depth of this node.
+        :param n: The max bucket size.
         :param direction: The direction to consume the key from.
         """
         self.n = n
@@ -253,7 +328,7 @@ class _DHTNode(object):
         :param bitstring: The key as a partially consumed bitstring.
         :param value: The value ordinate of the key-value pair.
         """
-        tree_key, consumed_key = consume_key(bitstring, self.direction)
+        tree_key, consumed_key = consume_bitstring(bitstring, self.direction)
         if tree_key == LEFT_KEY:
             if isinstance(self.left_child, _DHTNode):
                 self.left_child.add(key, consumed_key, value)
@@ -282,7 +357,7 @@ class _DHTNode(object):
         :param bitstring: A partially consumed bitstring representation of the key.
         :return: True if the key is found in the tree, False otherwise.
         """
-        tree_key, consumed_key = consume_key(bitstring, self.direction)
+        tree_key, consumed_key = consume_bitstring(bitstring, self.direction)
         if tree_key == LEFT_KEY:
             if isinstance(self.left_child, _DHTNode):
                 return self.left_child.contains(key, consumed_key)
@@ -312,7 +387,7 @@ class _DHTNode(object):
         :param key: The key ordinate of the key-value pair.
         :param bitstring: The key as a partially consumed bitstring.
         """
-        tree_key, consumed_key = consume_key(bitstring, self.direction)
+        tree_key, consumed_key = consume_bitstring(bitstring, self.direction)
         if tree_key == LEFT_KEY:
             if isinstance(self.left_child, _DHTNode):
                 self.left_child.delete(key, consumed_key)
@@ -341,7 +416,7 @@ class _DHTNode(object):
         :param bitstring: A partially consumed bitstring version of the key.
         :return: The value corresponding to the first instance of the key, else None.
         """
-        tree_key, consumed_key = consume_key(bitstring, self.direction)
+        tree_key, consumed_key = consume_bitstring(bitstring, self.direction)
         if tree_key == LEFT_KEY:
             if isinstance(self.left_child, _DHTNode):
                 return self.left_child.get(key, consumed_key)
@@ -384,6 +459,26 @@ class _DHTNode(object):
             raise Exception()
         return max(left_height, right_height)
 
+    def traverse(self):
+        """
+        Traverse the tree left to right yielding entries as key-value pairs.
+        :return: A Python generator over the contents of the tree that yields key-value pairs.
+        """
+        if isinstance(self.left_child, SortedList):
+            for entry in self.left_child:
+                yield entry.key, entry.value
+        elif isinstance(self.left_child, _DHTNode):
+            yield from self.left_child.traverse()
+        else:
+            raise Exception()
+        if isinstance(self.right_child, SortedList):
+            for entry in self.right_child:
+                yield entry.key, entry.value
+        elif isinstance(self.right_child, _DHTNode):
+            yield from self.right_child.traverse()
+        else:
+            raise Exception()
+
     def _overflow(self, tree_key):
         """
         Handles overflows when they occur. This process converts the node into an internal node and redistributes its
@@ -397,7 +492,7 @@ class _DHTNode(object):
             for entry in self.left_child:
                 consumed_key = key_to_binary(entry.key)
                 for i in range(self.depth):
-                    _, consumed_key = consume_key(consumed_key, self.direction)
+                    _, consumed_key = consume_bitstring(consumed_key, self.direction)
                 new_left.add(entry.key, consumed_key, entry.value)
             if self.parent is not None:
                 self.parent.left_child = new_left
@@ -408,7 +503,7 @@ class _DHTNode(object):
             for entry in self.right_child:
                 consumed_key = key_to_binary(entry.key)
                 for i in range(self.depth):
-                    _, consumed_key = consume_key(consumed_key, self.direction)
+                    _, consumed_key = consume_bitstring(consumed_key, self.direction)
                 new_right.add(entry.key, consumed_key, entry.value)
             if self.parent is not None:
                 self.parent.right_child = new_right
@@ -430,6 +525,67 @@ class _DHTNode(object):
         else:
             raise Exception
         self.internal = False
+
+
+class BPT(object):
+    """
+    Implements a B+ tree.
+    """
+
+    def __init__(self, n=8, ff=0.75):
+        """
+        Returns a new instance of a B+ tree.
+        :param n: The max number of keys to store in each node of the tree.
+        :param ff: The maximum fill factor of each node in the tree.
+        """
+        self.n = n
+        self.ff = ff
+        self.root = _BPTNode(n=n, ff=ff)
+
+    def add(self, key, value):
+        """
+        Adds a key-value pair to the tree.
+        :param key: The key ordinate of the key-value pair.
+        :param value: The value ordinate of the key-value pair.
+        """
+        self.root.add(key, value)
+
+    def contains(self, key):
+        """
+        Determines if at least one entry exists in the tree with the given key ordinate.
+        :param key: The key ordinate of the key-value pair.
+        :return: True if a key-value pair is found in the tree containing the key ordinate, False otherwise.
+        """
+        return self.root.contains(key)
+
+    def delete(self, key):
+        """
+        Deletes the first key-value pair found in the tree with the given key ordinate.
+        :param key: The key ordinate of the key-value pair.
+        """
+        return self.root.delete(key)
+
+    def get(self, key):
+        """
+        Retrieves the first corresponding value ordinate for an entry in the tree given a key ordinate.
+        :param key: The key ordinate of the key-value pair.
+        :return: A value if an entry is found, None otherwise.
+        """
+        return self.root.get(key)
+
+    def height(self):
+        """
+        Returns the height of the tree.
+        :return: The number of levels in the tree.
+        """
+        return self.root.height()
+
+    def traverse(self):
+        """
+        Yields the key-value pairs in the tree in ordered fashion.
+        :return: An ordered generator over the key-value pairs in the tree.
+        """
+        yield from self.root.traverse()
 
 
 class DHT(object):
@@ -482,16 +638,42 @@ class DHT(object):
         """
         return self.root.height()
 
+    def traverse(self):
+        """
+        Traverse the tree left to right yielding entries as key-value pairs.
+        :return: A Python generator over the contents of the tree that yields key-value pairs.
+        """
+        yield from self.root.traverse()
 
-def test_dynamic_hashing():
+
+def test_bpt():
+    sl = SortedList([
+        _IndexEntry(0, None),
+        _IndexEntry(5, None),
+        _IndexEntry(10, None),
+        _IndexEntry(15, None),
+        _IndexEntry(20, None)
+    ])
+    print(sl.bisect_right(-3))
+    print(sl.bisect_right(3))
+    print(sl.bisect_right(7))
+    print(sl.bisect_right(13))
+    print(sl.bisect_right(17))
+    print(sl.bisect_right(23))
+
+
+def test_dht():
     items = [5, 1, 9, 3, 8, 2, 6, 0, 7]
     tree = DHT(n=3)
     for i in range(len(items)):
         tree.add(items[i], i)
+    for key, value in tree.traverse():
+        print("==> ({k}, {v})".format(k=key, v=value))
     assert tree.contains(9)
     assert tree.height() == 2
     assert tree.get(9) == 2
+    print("Dynamic hash tree testing succeeded!")
 
 
 if __name__ == '__main__':
-    test_dynamic_hashing()
+    test_bpt()
