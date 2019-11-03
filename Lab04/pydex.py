@@ -3,6 +3,7 @@
 # Author: Christen Ford
 # Purpose: Implements the dynamic hashing index algorithm.
 
+import hashlib
 from sortedcontainers import SortedList
 
 # used to consume bits in a bitstring.
@@ -16,7 +17,15 @@ RIGHT_KEY = '1'  # maps all entries keyed to '1'
 
 # used by the SortedList to compare keys
 def extract_key(e):
-    return e.key
+    """
+    Attempts to return the key from an _IndexEntry
+    :param e: An _IndexEntry or a key type.
+    :return: If e is an _IndexEntry then 'e.key', otherwise 'e'.
+    """
+    if isinstance(e, _IndexEntry):
+        return e.key
+    else:
+        return e
 
 
 def consume_bitstring(bitstring, direction):
@@ -35,28 +44,22 @@ def consume_bitstring(bitstring, direction):
     if len(bitstring) == 1:
         return bitstring[0], ""
     if direction == LEFT_TO_RIGHT:
-        bit = bitstring[0]
-        consumed = bitstring[1:len(bitstring)]
+        return bitstring[0], bitstring[1:]
     else:
-        bit = bitstring[-1]
-        consumed = bitstring[0:len(bitstring)-1]
-    return bit, consumed
+        return bitstring[-1], bitstring[:-1]
 
 
-def key_to_binary(key, n=32):
+def key_to_binary(key):
     """
-    Converts the given key to binary with a fixed number of bits.
-    :param key: The key to convert to binary.
-    :param n: The number of bits to fix the binary representation of the key to.
-    :return:
-    :raises ValueError: If the key is None or not an integer.
-    :raises ValueError: If n is less than 0.
+    Generates a binary representation of a key.
+    :param key: The key to transform.
+    :return: A binary representation of a 32 byte key.
     """
-    if key is None or not isinstance(key, int):
-        raise ValueError
-    if n < 0:
-        raise ValueError
-    return format(key, '0{bits}b'.format(bits=n))
+    digest = hashlib.sha256()
+    digest.update(bytes(key))
+    hk = digest.hexdigest()
+    bk = bin(int(hk, 16))[2:]
+    return bk
 
 
 class _IndexEntry(object):
@@ -180,132 +183,12 @@ class _IndexEntry(object):
         return "({k}, {v})".format(k=self.key, v=self.value)
 
 
-class _BPTNode(object):
-    """
-    Implements an internal class that handles the heavy lifting for the B+ tree class.
-    """
-
-    def __init__(self, n=8, ff=0.75, internal=False, parent=None, sibling=None):
-        """
-        Returns a new instace of a _BPTNode.
-        :param n: The maximum number of keys to store in the node.
-        :param ff: The fill factor for the node.
-        :param internal: Whether this node is an internal node. True=internal, False=leaf.
-        :param parent: The parent node of this node.
-        :param sibling: The next sibling from this node.
-        """
-        self.n = n
-        self.ff = ff
-        self.internal = internal
-        self.parent = parent
-        self.sibling = sibling
-        self.entries = SortedList(key=extract_key)
-        self.pointers = []
-
-    def add(self, key, value):
-        """
-
-        :param key:
-        :param value:
-        :return:
-        """
-        if self.internal:
-            index = self.entries.bisect_right(key)
-            self.pointers[index].add(key, value)
-        else:
-            self.entries.add(_IndexEntry(key, value))
-        if len(self.entries) > self.n * self.ff:
-            self._overflow()
-
-    def contains(self, key):
-        """
-
-        :param key:
-        :return:
-        """
-        if self.internal:
-            return self.pointers[0].contains(key)
-        else:
-            index = self.entries.bisect_right(key)
-            if index < len(self.entries):
-                return True
-            if self.sibling:
-                return self.sibling.contains(key)
-            return False
-
-    def delete(self, key):
-        """
-
-        :param key:
-        :return:
-        """
-        if self.internal:
-            index = self.entries.bisect_right(key)
-            self.pointers[index].delete(key)
-        else:
-            self.entries.discard(key)
-        if len(self.entries) < 1 - (self.n * self.ff):
-            self._underflow()
-
-    def get(self, key):
-        """
-
-        :param key:
-        :return:
-        """
-        if self.internal:
-            return self.pointers[0].get(key)
-        else:
-            index = self.entries.bisect_right(key)
-            if index < len(self.entries):
-                return self.entries[index].value
-            if self.sibling:
-                return self.sibling.get(key)
-            return None
-
-    def height(self):
-        """
-
-        :return:
-        """
-        if self.internal:
-            return self.pointers[0].height() + 1
-        return 1
-
-    def traverse(self):
-        """
-
-        :return:
-        """
-        if self.internal:
-            yield from self.pointers[0].traverse()
-        else:
-            for entry in self.entries:
-                yield entry.key, entry.value
-            if self.sibling:
-                yield from self.sibling.traverse()
-
-    def _overflow(self):
-        """
-
-        :return:
-        """
-        raise NotImplementedError
-
-    def _underflow(self):
-        """
-
-        :return:
-        """
-        raise NotImplementedError
-
-
 class _DHTNode(object):
     """
     Implements a node in a dynamic hash tree. Used by the DHT class to perform internal operations on the tree.
     """
 
-    def __init__(self, parent=None, depth=0, n=8, direction=RIGHT_TO_LEFT):
+    def __init__(self, parent=None, depth=0, n=8, direction=LEFT_TO_RIGHT):
         """
         Returns an instance of a _DHTNode with the specified max bucket size and parent.
         :param parent: A pointer to the parent node.
@@ -317,7 +200,6 @@ class _DHTNode(object):
         self.depth = depth
         self.parent = parent
         self.direction = direction
-        self.internal = False
         self.left_child = SortedList(key=extract_key)
         self.right_child = SortedList(key=extract_key)
 
@@ -424,7 +306,7 @@ class _DHTNode(object):
                 for entry in self.left_child:
                     if entry.key == key:
                         return entry.value
-                return None
+                raise KeyError
             else:
                 raise KeyError
         elif tree_key == RIGHT_KEY:
@@ -434,7 +316,7 @@ class _DHTNode(object):
                 for entry in self.right_child:
                     if entry.key == key:
                         return entry.value
-                return None
+                raise KeyError
             else:
                 raise KeyError
         else:
@@ -488,28 +370,27 @@ class _DHTNode(object):
         if tree_key == LEFT_KEY:
             if not isinstance(self.left_child, SortedList):
                 raise Exception()
-            new_left = _DHTNode(self, n=self.n, depth=self.depth+1)
+            new_left = _DHTNode(parent=self, n=self.n, depth=self.depth+1, direction=self.direction)
             for entry in self.left_child:
                 consumed_key = key_to_binary(entry.key)
                 for i in range(self.depth):
                     _, consumed_key = consume_bitstring(consumed_key, self.direction)
                 new_left.add(entry.key, consumed_key, entry.value)
-            if self.parent is not None:
-                self.parent.left_child = new_left
+            self.left_child.clear()
+            self.left_child = new_left
         elif tree_key == RIGHT_KEY:
             if not isinstance(self.right_child, SortedList):
                 raise Exception()
-            new_right = _DHTNode(self, n=self.n, depth=self.depth+1)
+            new_right = _DHTNode(parent=self, n=self.n, depth=self.depth+1, direction=self.direction)
             for entry in self.right_child:
                 consumed_key = key_to_binary(entry.key)
                 for i in range(self.depth):
                     _, consumed_key = consume_bitstring(consumed_key, self.direction)
                 new_right.add(entry.key, consumed_key, entry.value)
-            if self.parent is not None:
-                self.parent.right_child = new_right
+            self.right_child.clear()
+            self.right_child = new_right
         else:
             raise ValueError()
-        self.internal = True
 
     def _underflow(self):
         """
@@ -524,68 +405,6 @@ class _DHTNode(object):
             self.parent.right_child = SortedList(key=extract_key)
         else:
             raise Exception
-        self.internal = False
-
-
-class BPT(object):
-    """
-    Implements a B+ tree.
-    """
-
-    def __init__(self, n=8, ff=0.75):
-        """
-        Returns a new instance of a B+ tree.
-        :param n: The max number of keys to store in each node of the tree.
-        :param ff: The maximum fill factor of each node in the tree.
-        """
-        self.n = n
-        self.ff = ff
-        self.root = _BPTNode(n=n, ff=ff)
-
-    def add(self, key, value):
-        """
-        Adds a key-value pair to the tree.
-        :param key: The key ordinate of the key-value pair.
-        :param value: The value ordinate of the key-value pair.
-        """
-        self.root.add(key, value)
-
-    def contains(self, key):
-        """
-        Determines if at least one entry exists in the tree with the given key ordinate.
-        :param key: The key ordinate of the key-value pair.
-        :return: True if a key-value pair is found in the tree containing the key ordinate, False otherwise.
-        """
-        return self.root.contains(key)
-
-    def delete(self, key):
-        """
-        Deletes the first key-value pair found in the tree with the given key ordinate.
-        :param key: The key ordinate of the key-value pair.
-        """
-        return self.root.delete(key)
-
-    def get(self, key):
-        """
-        Retrieves the first corresponding value ordinate for an entry in the tree given a key ordinate.
-        :param key: The key ordinate of the key-value pair.
-        :return: A value if an entry is found, None otherwise.
-        """
-        return self.root.get(key)
-
-    def height(self):
-        """
-        Returns the height of the tree.
-        :return: The number of levels in the tree.
-        """
-        return self.root.height()
-
-    def traverse(self):
-        """
-        Yields the key-value pairs in the tree in ordered fashion.
-        :return: An ordered generator over the key-value pairs in the tree.
-        """
-        yield from self.root.traverse()
 
 
 class DHT(object):
@@ -593,12 +412,12 @@ class DHT(object):
     Implements a dynamic hash tree for use in indexing.
     """
 
-    def __init__(self, n=8):
+    def __init__(self, n=8, direction=LEFT_TO_RIGHT):
         """
         Returns a new instance of a DHT with a specified max number of entries per node.
         :param n: The max number of entries per node.
         """
-        self.root = _DHTNode(n=n)
+        self.root = _DHTNode(n=n, direction=direction)
 
     def add(self, key, value):
         """
@@ -646,34 +465,19 @@ class DHT(object):
         yield from self.root.traverse()
 
 
-def test_bpt():
-    sl = SortedList([
-        _IndexEntry(0, None),
-        _IndexEntry(5, None),
-        _IndexEntry(10, None),
-        _IndexEntry(15, None),
-        _IndexEntry(20, None)
-    ])
-    print(sl.bisect_right(-3))
-    print(sl.bisect_right(3))
-    print(sl.bisect_right(7))
-    print(sl.bisect_right(13))
-    print(sl.bisect_right(17))
-    print(sl.bisect_right(23))
-
-
 def test_dht():
-    items = [5, 1, 9, 3, 8, 2, 6, 0, 7]
-    tree = DHT(n=3)
+    items = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    tree = DHT(n=3, direction=LEFT_TO_RIGHT)
     for i in range(len(items)):
         tree.add(items[i], i)
     for key, value in tree.traverse():
         print("==> ({k}, {v})".format(k=key, v=value))
-    assert tree.contains(9)
-    assert tree.height() == 2
-    assert tree.get(9) == 2
+    assert(tree.contains(9))
+    assert(tree.height() == 4)
+    tree.delete(9)
+    assert(not tree.contains(9))
     print("Dynamic hash tree testing succeeded!")
 
 
 if __name__ == '__main__':
-    test_bpt()
+    test_dht()
