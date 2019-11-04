@@ -425,8 +425,39 @@ def test_lab():
           4: "data11", 9: "data12"}
     for key, value in kv.items():
         dht.add(key, value)
+    print('Traversing DHT from left-to-right...')
     for key, value in dht.traverse():
         print("{k} => {v}".format(k=key, v=value))
+    print('Testing that all key-value pairs are in the DHT...')
+    try:
+        for key in kv.keys():
+            assert (dht.contains(key))
+        print('Successfully determined that all key-value pairs are in the DHT!')
+    except AssertionError:
+        print('Assertion Error: Contains method failed!')
+    print('Testing that all values are retrievable...')
+    try:
+        for key in kv.keys():
+            assert(dht.get(key) == kv[key])
+        print('Successfully retrieved all values from the DHT!')
+    except AssertionError:
+        print('Assertion error: There was an error getting a value from the DHT!')
+    print('Deleting all key-value pairs from the DHT...')
+    for key in kv.keys():
+        dht.delete(key)
+    print('Testing that there are no key-value pairs in the DHT...')
+    try:
+        for key in kv.keys():
+            assert(not dht.contains(key))
+        print('Successfully determined that no key-value pairs are in the DHT!')
+    except AssertionError:
+        print('Assertion Error: A key-value pair was found in the DHT!')
+    print('Testing that the DHT was properly collapsed...')
+    try:
+        assert(dht.height() == 1)
+        print('DHT collapsed successfully, DHT height is 1!')
+    except AssertionError:
+        print('Assertion Error: DHT not collapsed properly, height not 1!')
 
 
 if __name__ == '__main__':
