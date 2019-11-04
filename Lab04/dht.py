@@ -25,6 +25,8 @@ LEFT_BIT = '0'
 RIGHT_BIT = '1'
 LEFT_TO_RIGHT = 0
 RIGHT_TO_LEFT = 1
+MIN_KEYS = 3
+MIN_FILL_FACTOR = 0.33
 
 
 def consume_bkey(bkey, direction):
@@ -86,6 +88,10 @@ class _IndexEntry(object):
 
 
 class _DHTNode(object):
+    """
+    Implements a Node for the DHT that handles the heavy lifting of managing the tree. All operations
+    defined in this module are defined recursively.
+    """
 
     def __init__(self, n=8, ff=0.80, direction=LEFT_TO_RIGHT, parent=None):
         """
@@ -95,13 +101,13 @@ class _DHTNode(object):
         :param direction: The direction to consume the key from.
         :param parent: A reference to the parent node.
         """
-        if n < 3:
-            n = 3
+        if n < MIN_KEYS:
+            n = MIN_KEYS
         self.n = n
-        if ff < 0.25:
-            ff = 0.25
+        if ff < MIN_FILL_FACTOR:
+            ff = MIN_FILL_FACTOR
         self.ff = ff
-        if not (self.direction == LEFT_TO_RIGHT or self.direction == RIGHT_TO_LEFT):
+        if not (direction == LEFT_TO_RIGHT or direction == RIGHT_TO_LEFT):
             direction = LEFT_TO_RIGHT
         self.n = n
         self.ff = ff
@@ -312,6 +318,16 @@ class _DHTNode(object):
 
 
 class DHT(object):
+    """
+    Defines a data structure implementing the dynamic hash index algorithm. Specifically, this structure
+    implements a dynamic hash table that defines the following operations:
+        add: Adds a key-value pair to the DHT.
+        contains: Determines if the DHT contains at least one key-value pair with the given key.
+        delete: Deletes the first matching key-value pair from the DHT with the given key.
+        get: Retrieves the value corresponding to the first matching key-value pair from the DHT with the given key.
+        height: Gets the height of the DHT.
+        traverse: Yields key-value pairs from the DHT in a left-to-right fashion.
+    """
 
     def __init__(self, n=8, ff=0.80, direction=LEFT_TO_RIGHT):
         """
@@ -321,13 +337,13 @@ class DHT(object):
         :param direction: The direction to consume the key from during operations. One of {LEFT_TO_RIGHT, RIGHT_TO_LEFT}
         (default: LEFT_TO_RIGHT).
         """
-        if n < 3:
-            n = 3
+        if n < MIN_KEYS:
+            n = MIN_KEYS
         self.n = n
-        if ff < 0.25:
-            ff = 0.25
+        if ff < MIN_FILL_FACTOR:
+            ff = MIN_FILL_FACTOR
         self.ff = ff
-        if not (self.direction == LEFT_TO_RIGHT or self.direction == RIGHT_TO_LEFT):
+        if not (direction == LEFT_TO_RIGHT or direction == RIGHT_TO_LEFT):
             direction = LEFT_TO_RIGHT
         self.direction = direction
         self.root = _DHTNode(n=self.n, ff=self.ff, direction=self.direction)
@@ -401,12 +417,17 @@ def test_dht():
 
 def test_lab():
     dht = DHT(n=5)
-    kv = {}
-    for key, value in kv:
+    kv = {1: "data1", 7: "data2",
+          3: "data3", 8: "data4",
+          12: "data5", 14: "data6",
+          11: "data7", 2: "data8",
+          10: "data9", 13: "data10",
+          4: "data11", 9: "data12"}
+    for key, value in kv.items():
         dht.add(key, value)
     for key, value in dht.traverse():
         print("{k} => {v}".format(k=key, v=value))
 
 
 if __name__ == '__main__':
-    test_dht()
+    test_lab()
